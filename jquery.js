@@ -41,7 +41,7 @@ var
 	// Define a local copy of jQuery
 	jQuery = function( selector, context ) {
 		// The jQuery object is actually just the init constructor 'enhanced'
-		//不论是不是用"new" jQuery(), 都会返回 new jQuery.fn.init().
+		//不论是不是用"new" jQuery(), 都会返回new jQuery.fn.init().
 		return new jQuery.fn.init( selector, context, rootjQuery );
 	},
 
@@ -242,6 +242,10 @@ jQuery.fn = jQuery.prototype = {
 	// Execute a callback for every element in the matched set.
 	// (You can seed the arguments with an array of args, but this is
 	// only used internally.)
+    //一:在jQuery.fn = jQuery.prototype里扩展的each()方法, 
+    //1.这里这里转化了一下, 内部调用的jQuery.each是靠extend()添加的静态方法(添加过程之前分析过了)
+    //2.这里的this指的是产生的jQuery实例(反正是选择器生成的包装过的对象,类数组,有length,选择器太细节太多 回头再说...)
+    //3.args源码中注释:第三个参数仅内部使用,先不管
 	each: function( callback, args ) {
 		return jQuery.each( this, callback, args );
 	},
@@ -441,11 +445,18 @@ jQuery.extend({
 
 	type: function( obj ) {
 		return obj == null ?
-			String( obj ) :
-			class2type[ core_toString.call(obj) ] || "object";
+        //1.只有null和undefined的情况下, 用一下String强转(强转的话题也太大,用toString什么的, 这只用到这种情况)
+        //String( undefined )==>"undefined" , String( null )==>"null"
+        String( obj ) :
+        //2.其余交给class2type, 如果class2type没查到, 那就是自定义的object
+        //(我觉得chrome中 最后的|| "object"根本没可能执行 , 可能和兼容性有关, 有可能某些浏览器Object.prototype.toString.call不能正确的查到值)
+        class2type[ core_toString.call(obj) ] || "object";
+        //补充一点Object.prototype.toString其实能准确判断null和undefined, 现在的逻辑 第一个分支过滤掉,这里就能用于|| "object"判断了, 相当巧妙
 	},
 
 	isPlainObject: function( obj ) {
+		//如果obj.nodeType有值, 就是DOM对象(非IE中, nodeType对应一组常量)
+    	//window对象也不算, 特殊判断了一下
 		// Must be an Object.
 		// Because of IE, we also have to check the presence of the constructor property.
 		// Make sure that DOM nodes and window objects don't pass through, as well
@@ -454,6 +465,10 @@ jQuery.extend({
 		}
 
 		try {
+			//对象都是构造出来的,都有constructor: 比如"" -> String -> Function -> Function
+	        //obj.hasOwnProperty("constructor")和obj.constructor.prototype.hasOwnProperty("isPrototypeOf")用于检查组合继承和原型继承
+	        //js继承大概分prototype , call/apply, 还有组合使用几种
+	        //这块我理解很不到位, 具体原理不太清楚
 			// Not own constructor property must be Object
 			if ( obj.constructor &&
 				!core_hasOwn.call(obj, "constructor") &&
@@ -461,6 +476,7 @@ jQuery.extend({
 				return false;
 			}
 		} catch ( e ) {
+			// IE8,9有可能会报异常, 我没遇上...
 			// IE8,9 Will throw exceptions on certain host objects #9897
 			return false;
 		}
@@ -477,6 +493,7 @@ jQuery.extend({
 	isEmptyObject: function( obj ) {
 		var name;
 		for ( name in obj ) {
+			//能进到循环, 证明就有属性
 			return false;
 		}
 		return true;
@@ -578,6 +595,8 @@ jQuery.extend({
 	// Convert dashed to camelCase; used by the css and data modules
 	// Microsoft forgot to hump their vendor prefix (#9572)
 	camelCase: function( string ) {
+		//第一次替换把可能出现的-ms-开头 换成ms-开头
+    	//主要是第二次替换,把"-"紧跟字母的,去掉"-"补一个大写字母
 		return string.replace( rmsPrefix, "ms-" ).replace( rdashAlpha, fcamelCase );
 	},
 
@@ -585,6 +604,8 @@ jQuery.extend({
 		return elem.nodeName && elem.nodeName.toLowerCase() === name.toLowerCase();
 	},
 
+	//二:经过"一",传到这里
+    //1.obj是选择器生成的包装好的对象 , callback就是传入的回调函数, 可以是格式:function(index, domEle){});
 	// args is for internal usage only
 	each: function( obj, callback, args ) {
 		var name,
@@ -609,14 +630,22 @@ jQuery.extend({
 
 		// A special, fast, case for the most common use of each
 		} else {
+			//3.这里判断是否是对象(看了下类型判断还不少, 下次分析)
+            //跟代码时候发现好多函数都调用此处进行扩展, 这儿的使用频率很高
 			if ( isObj ) {
 				for ( name in obj ) {
+					//用的for in去取对象属性, 其余和下边一样
 					if ( callback.call( obj[ name ], name, obj[ name ] ) === false ) {
 						break;
 					}
 				}
 			} else {
+				//2.非对象的情况就是数组遍历
 				for ( ; i < length; ) {
+				    //回调函数function(index, domEle){})调用call, 
+                    //也就是说回调里的this换成obj[ i ] (例如一个选择器返回的dom对象), 并且传入function( i, 该dom对象){})
+                    //回调的内容$(this)就是jQuery(该dom对象)生成的实例
+                    //最后i++, 另外如果回调返回false就可以break了
 					if ( callback.call( obj[ i ], i, obj[ i++ ] ) === false ) {
 						break;
 					}
@@ -627,6 +656,8 @@ jQuery.extend({
 		return obj;
 	},
 
+	//有原生trim且通过检测的(\uFEFF是标记)
+	//!core_trim.call("\uFEFF\xA0")是个浏览器检测, 我手里支持String.prototype.trim的浏览器这个测试都返回true
 	// Use native String.trim function wherever possible
 	trim: core_trim && !core_trim.call("\uFEFF\xA0") ?
 		function( text ) {
@@ -662,18 +693,26 @@ jQuery.extend({
 		return ret;
 	},
 
+	//判断元素是否在数组中
 	inArray: function( elem, arr, i ) {
 		var len;
 
 		if ( arr ) {
 			if ( core_indexOf ) {
+				//有Array.prototype.indexOf的就用原生方法
 				return core_indexOf.call( arr, elem, i );
 			}
 
 			len = arr.length;
+			//中间加个括号比较好读
+        	// i ?    (i < 0 ? Math.max( 0, len + i ) : i )  : 0;
+        	//没有i返回0 , 否则:(小于0就倒着减去i, 大等0就从i开始)
 			i = i ? i < 0 ? Math.max( 0, len + i ) : i : 0;
 
 			for ( ; i < len; i++ ) {
+				//数组可以用in操作符: idx(数字) in array(数组) 
+            	//对象的in操作符是: key(键值的键) in Obj(对象)
+            	//且要求强等
 				// Skip accessing in sparse arrays
 				if ( i in arr && arr[ i ] === elem ) {
 					return i;
@@ -684,22 +723,27 @@ jQuery.extend({
 		return -1;
 	},
 
+	//合并数组,类数组
 	merge: function( first, second ) {
 		var l = second.length,
 			i = first.length,
 			j = 0;
 
+		//length是数字,是一般数组
 		if ( typeof l === "number" ) {
 			for ( ; j < l; j++ ) {
-				first[ i++ ] = second[ j ];
+				first[ i++ ] = second[ j ];//把second[j]拷贝到first[i],之后i自增,first.length还没变
 			}
 
 		} else {
+			//second.length不是数字时, 可能是类数组
+        	//要验证不是"undefined"再拷贝
 			while ( second[j] !== undefined ) {
 				first[ i++ ] = second[ j++ ];
 			}
 		}
 
+		//first.length更新
 		first.length = i;
 
 		return first;
@@ -906,6 +950,8 @@ jQuery.ready.promise = function( obj ) {
 	return readyList.promise( obj );
 };
 
+//用each方法扩展 , 最后class2type存的都是键值对 比如[object Date]: "date", 
+//这里并不包括null和undefined, 因为查询这个对象之前, 会处理null和undefined
 // Populate the class2type map
 jQuery.each("Boolean Number String Function Array Date RegExp Object".split(" "), function(i, name) {
 	class2type[ "[object " + name + "]" ] = name.toLowerCase();
